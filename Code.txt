@@ -1,0 +1,429 @@
+# Importing Required Libraries
+library(readxl)
+library(dplyr)
+# Reading data from excel file
+file_path <- "C:/Users/hp/Downloads/COPY.csv"
+df <- read.csv(file_path)
+head(df)
+# Display all rows of a data frame
+print(head(df), width = Inf)
+# about the data in each column (type, entries)
+str(df)
+
+# Calculate the average value of every main variable
+df$COM <- rowMeans(df[, grep("^COM", colnames(df))])
+df$TR <- rowMeans(df[, grep("^TR", colnames(df))])
+df$JA <- rowMeans(df[, grep("^JA", colnames(df))])
+df$SWHR <- rowMeans(df[, grep("^SWHR", colnames(df))])
+df$TL <- rowMeans(df[, grep("^TL", colnames(df))])
+df$PJ <- rowMeans(df[, grep("^PJ", colnames(df))])
+df$IJ <- rowMeans(df[, grep("^IJ", colnames(df))])
+df$DJ <- rowMeans(df[, grep("^DJ", colnames(df))])
+df$InJ <- rowMeans(df[, grep("^InJ", colnames(df))])
+df$OJ <- rowMeans(df[, grep("^OJ", colnames(df))])
+df$EKSBKD <- rowMeans(df[, grep("^EKSBKD", colnames(df))])
+df$EKSBKC <- rowMeans(df[, grep("^EKSBKC", colnames(df))])
+df$EKSB <- rowMeans(df[, grep("^EKSB", colnames(df))])
+df$CA <- rowMeans(df[, grep("^CA", colnames(df))])
+
+selected_columns <- df[, c("COM", "JA", "CA", "TR", "SWHR", "OJ", "EKSB" , "TL" ,"PJ" , "DJ" , "InJ" , "EKSB")]
+
+# Display the first few rows of the selected columns
+head(selected_columns)
+
+str(selected_columns)
+summary(selected_columns)
+
+# Dataframe contains some columns in which data type is charecter and below code is intented to convert those columns to numeric.
+char_columns <- c("COM", "TR", "JA", "SWHR", "TL", "PJ", "IJ", "DJ", "InJ", "OJ", "EKSBKD", "EKSBKC", "EKSB", "CA")
+selected_columns[char_columns] <- lapply(selected_columns[char_columns], as.numeric)
+summary(selected_columns)
+
+library(psych)
+# This block of code is being used to describe the data and charecteristics of column.
+# It includes important informations like skew, kurtosis, etc.
+describe(selected_columns)
+
+# With below block of code, columns having more than 50 % of null values being dropped.
+threshold <- 0.5
+null_percentage <- colSums(is.na(selected_columns)) / nrow(selected_columns)
+columns_to_drop <- names(null_percentage[null_percentage > threshold])
+selected_columns <- selected_columns[, !(names(selected_columns) %in% columns_to_drop)]
+print(columns_to_drop)
+
+# selecting numeric columns to create correlation matrix.
+numeric_selected_columns <- selected_columns %>% select_if(is.numeric)
+correlation_matrix <- cor(numeric_selected_columns, use = "complete.obs")
+
+library(corrplot)
+library(repr)
+# correlation plot library import
+# correlation between columns CA and EKSB
+correlation <- cor(selected_columns$CA, df$EKSB)
+print(correlation)
+# Correlation between CA and EKSB is 0.4262502
+options(repr.plot.width=8, repr.plot.height=6)
+plot(df$CA, df$EKSB,
+     xlab = "CA", ylab = "EKSB",
+     main = "Scatter Plot of CA vs EKSB")
+# Splitting data in X and y.
+X <- selected_columns[, !names(selected_columns) %in% c("EKSB")]
+y <- selected_columns$EKSB
+library(rpart)
+library(caret)
+# Training a tree model to extract feature importance for each variable.
+tree_model <- rpart(y ~ ., data = selected_columns[, !names(selected_columns) %in% c("EKSB")], method = "anova")
+importance <- varImp(tree_model)
+# Feature importance for each column.
+importance
+# filtering out feature whose feature importance is equals to 0.
+importance_selected_columns <- importance[importance$Overall != 0, , drop = FALSE]
+importance_selected_columns
+# These are remaining features.
+# Remove the "EKSB.1" column from selected_columns
+selected_columns <- subset(selected_columns, select = -EKSB.1)
+
+# Display the updated selected_columns dataframe
+head(selected_columns)
+
+# Training a tree model to extract feature importance for each variable.
+tree_model <- rpart(y ~ ., data = selected_columns[, !names(selected_columns) %in% c("EKSB")], method = "anova")
+importance <- varImp(tree_model)
+# Feature importance for each column.
+importance
+# filtering out feature whose feature importance is equals to 0.
+importance_selected_columns <- importance[importance$Overall != 0, , drop = FALSE]
+importance_selected_columns
+# These are remaining features.
+
+# Bar plot of feature importance
+importance_values <- importance_selected_columns$Overall
+
+feature_names <- rownames(importance_selected_columns)
+
+barplot(importance_values,
+        names.arg = feature_names,
+        xlab = "Feature",
+        ylab = "Importance",
+        main = "Feature Importance",
+        las = 2,
+        col = "skyblue",
+        ylim = c(0, max(importance_values) * 1.2)
+)
+
+# Here only those features will get selected whose feature importance is non zero or greater than zero.
+cols_sltd <- rownames(importance_selected_columns)
+X <- selected_columns[cols_sltd]
+# Data split in train and test
+set.seed(123)
+
+trainIndex <- createDataPartition(y, p = 0.8, list = FALSE)
+
+X_train <- X[trainIndex, ]
+y_train <- y[trainIndex]
+
+X_test <- X[-trainIndex, ]
+y_test <- y[-trainIndex]
+
+# Fit a GLM
+glm_model <- glm(y_train ~ .,  data = X_train)
+
+# Print summary of the GLM model
+summary(glm_model)
+# Calculate deviance residuals
+deviance_residuals <- residuals(glm_model, type = "deviance")
+# Print summary statistics
+print(summary(deviance_residuals))
+# Linear regression model
+lm_model <- lm(y_train ~ ., data = X_train)
+y_pred <- predict(lm_model, newdata = X_test)
+# Evaluation metrics for Linear regression model
+mae_lm <- mean(abs(y_pred - y_test))
+mse_lm <- mean((y_pred - y_test)^2)
+rmse_lm <- sqrt(mean((y_pred - y_test)^2))
+rsquared_lm <- summary(lm_model)$r.squared
+print("Linear Regression : ")
+print(paste("MAE:", mae_lm))
+print(paste("MSE:", mse_lm))
+print(paste("RMSE:", rmse_lm))
+print(paste("R-squared:", rsquared_lm))
+# Compute AIC
+AIC_value <- AIC(lm_model)
+print(AIC_value)
+# Summary of the linear regression model
+summary(lm_model)
+# Mean Absolute Percentage Error
+mape <- mean(abs((y_test - y_pred) / y_test)) * 100
+print(paste("MAPE:", round(mape, 2), "%"))
+
+# Accuracy
+acc <- mean(1-abs((y_test - y_pred) / y_test)) * 100
+print(paste("Accuracy : ", acc))
+# Linear regression best fit line
+options(repr.plot.width=8, repr.plot.height=6)
+plot(y_test, y_pred, main = "Actual vs Predicted (Linear Regression)",
+     xlab = "Actual", ylab = "Predicted", col = "blue")
+abline(0, 1, col = "red")
+library(randomForest)
+# Random forest model
+rforest <- randomForest(x = X_train, y = y_train)
+
+pred_rf <- predict(rforest, newdata = X_test)
+# Evaluation of Random forest model
+mae_lm <- mean(abs(pred_rf - y_test))
+mse_lm <- mean((pred_rf - y_test)^2)
+rmse_lm <- sqrt(mean((pred_rf - y_test)^2))
+print("Random Forest Regression : ")
+print(paste("MAE:", mae_lm))
+print(paste("MSE:", mse_lm))
+print(paste("RMSE:", rmse_lm))
+# Random Forest R-squared
+rsquared_rf <- R2(pred_rf, y_test)
+print(paste("Random Forest R-squared:", rsquared_rf))
+# Mean Absolute Percentage Error
+mape <- mean(abs((y_test - pred_rf) / y_test)) * 100
+print(paste("MAPE:", round(mape, 2), "%"))
+
+# Accuracy
+acc <- mean(1-abs((y_test - pred_rf) / y_test)) * 100
+print(paste("Accuracy : ", acc))
+# Define the tuning grid
+tuneGrid <- expand.grid(
+  mtry = c(2, 3, 5)
+)
+
+# Set up control parameters for tuning
+control <- trainControl(
+  method = "cv",
+  number = 5,
+  verboseIter = TRUE,
+  search = "grid"
+)
+
+rf_tuned <- train(
+  x = X_train,
+  y = y_train,
+  method = "rf",
+  tuneGrid = tuneGrid,
+  trControl = control
+)
+# Print the best model and its hyperparameters
+print(rf_tuned)
+# Feature importance as per random forest model.
+importance_rf <- imp# Actual vs Predicted (Random Forest)
+options(repr.plot.width=8, repr.plot.height=6)
+imortance(rforest)
+print(importance_rf)
+
+plot(y_test, pred_rf, main = "Actual vs Predicted (Random Forest)",
+     xlab = "Actual", ylab = "Predicted", col = "blue")
+abline(0, 1, col = "red")
+# selecting numeric columns to create correlation matrix.
+numeric_selected_columns <- selected_columns %>% select_if(is.numeric)
+correlation_matrix <- cor(numeric_selected_columns, use = "complete.obs")
+
+library(corrplot)
+library(repr)
+# correlation plot library import
+# correlation between columns CA and EKSB
+correlation <- cor(selected_columns$CA, df$EKSB)
+print(correlation)
+
+
+
+
+
+
+library(randomForest)
+library(caret)
+
+
+
+rforest <- randomForest(x = X_train, y = y_train)
+
+pred_rf <- predict(rforest, newdata = X_test)
+
+mae_rf <- mean(abs(pred_rf - y_test))
+mse_rf <- mean((pred_rf - y_test)^2)
+rmse_rf <- sqrt(mean((pred_rf - y_test)^2))
+print("Random Forest Regression : ")
+print(paste("MAE:", mae_rf))
+print(paste("MSE:", mse_rf))
+print(paste("RMSE:", rmse_rf))
+
+rsquared_rf <- cor(pred_rf, y_test)^2
+print(paste("Random Forest R-squared:", rsquared_rf))
+
+mape <- mean(abs((y_test - pred_rf) / y_test)) * 100
+print(paste("MAPE:", round(mape, 2), "%"))
+
+
+acc <- mean(1 - abs((y_test - pred_rf) / y_test)) * 100
+print(paste("Accuracy : ", acc))
+
+
+tuneGrid <- expand.grid(
+  mtry = c(2, 3, 5),
+  ntree = c(100, 200, 500),
+  nodesize = c(1, 5, 10)
+)
+
+
+custom_rf <- function(x, y, ntree, mtry, nodesize, ...) {
+  randomForest(x = x, y = y, ntree = ntree, mtry = mtry, nodesize = nodesize, ...)
+}
+
+
+control <- trainControl(
+  method = "cv",
+  number = 5,
+  verboseIter = TRUE,
+  search = "grid"
+)
+
+rf_tuned <- train(
+  x = X_train,
+  y = y_train,
+  method = custom_rf,
+  tuneGrid = tuneGrid,
+  trControl = control,
+  metric = "RMSE"
+)
+
+
+print(rf_tuned)
+
+
+importance_rf <- importance(rforest)
+print(importance_rf)
+
+
+options(repr.plot.width=8, repr.plot.height=6)
+
+plot(y_test, pred_rf, main = "Actual vs Predicted (Random Forest)",
+     xlab = "Actual", ylab = "Predicted", col = "blue")
+abline(0, 1, col = "red")
+
+
+numeric_selected_columns <- selected_columns %>% select_if(is.numeric)
+correlation_matrix <- cor(numeric_selected_columns, use = "complete.obs")
+
+# Display correlation matrix
+print(correlation_matrix)
+
+
+
+
+library(randomForest)
+library(caret)
+
+# Define hyperparameters
+ntree <- 500  # Number of trees
+nodesize <- 5  # Minimum number of samples per leaf
+mtry <- 5  # Number of variables to possibly split at in each node (can be tuned)
+
+# Train the random forest model
+rforest <- randomForest(
+  x = X_train,
+  y = y_train,
+  ntree = ntree,
+  mtry = mtry,
+  nodesize = nodesize
+)
+
+# Predict on the test set
+pred_rf <- predict(rforest, newdata = X_test)
+
+# Evaluation of the model
+mae_rf <- mean(abs(pred_rf - y_test))
+mse_rf <- mean((pred_rf - y_test)^2)
+rmse_rf <- sqrt(mean((pred_rf - y_test)^2))
+rsquared_rf <- cor(pred_rf, y_test)^2
+mape <- mean(abs((y_test - pred_rf) / y_test)) * 100
+acc <- mean(1 - abs((y_test - pred_rf) / y_test)) * 100
+
+# Print evaluation metrics
+print("Random Forest Regression : ")
+print(paste("MAE:", mae_rf))
+print(paste("MSE:", mse_rf))
+print(paste("RMSE:", rmse_rf))
+print(paste("Random Forest R-squared:", rsquared_rf))
+print(paste("MAPE:", round(mape, 2), "%"))
+print(paste("Accuracy:", acc))
+
+# Feature importance
+importance_rf <- importance(rforest)
+print(importance_rf)
+
+# Plot Actual vs Predicted
+options(repr.plot.width = 8, repr.plot.height = 6)
+plot(y_test, pred_rf, main = "Actual vs Predicted (Random Forest)",
+     xlab = "Actual", ylab = "Predicted", col = "blue")
+abline(0, 1, col = "red")
+
+# Correlation matrix of selected columns
+numeric_selected_columns <- selected_columns %>% select_if(is.numeric)
+correlation_matrix <- cor(numeric_selected_columns, use = "complete.obs")
+print(correlation_matrix)
+
+
+# Load necessary library
+library(ggplot2)
+
+# Assuming rforest is the trained random forest model
+# Extract feature importance
+importance_rf <- importance(rforest)
+
+# Convert importance to a data frame for plotting
+importance_selected_columns <- data.frame(
+  Feature = rownames(importance_rf),
+  Importance = importance_rf[, 1]  # Assuming the first column has the importance values
+)
+
+# Plot the feature importance using ggplot2
+ggplot(importance_selected_columns, aes(x = reorder(Feature, Importance), y = Importance)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  coord_flip() +  # Flip coordinates to have horizontal bars
+  labs(title = "Feature Importance (Random Forest)",
+       x = "Feature",
+       y = "Importance") +
+  theme_minimal()
+
+
+
+
+# Extract the CA and EKSB columns
+CA <- selected_columns$CA
+EKSB <- selected_columns$EKSB
+
+# Fit the linear regression model
+lm_model <- lm(EKSB ~ CA, data = selected_columns)
+
+# Print the summary of the model
+summary(lm_model)
+
+# Access coefficients and residuals (optional)
+coefficients <- coef(lm_model)
+residuals <- residuals(lm_model)
+
+# Plot the fitted line (optional)
+plot(CA, EKSB)
+abline(lm_model)
+
+# Extract R squared value
+r_squared <- summary(lm_model)$r.squared
+
+# Calculate RMSE
+predictions <- predict(lm_model, newdata = selected_columns)
+rmse <- sqrt(mean((EKSB - predictions)^2))
+
+# Print R squared and RMSE values
+cat("R-squared:", r_squared, "\n")
+cat("RMSE:", rmse)
+
+
+
+
+
+
+
